@@ -1,4 +1,29 @@
-# Elâzığ Şehir İçi Teslimat Rotası Optimizasyonu (ACO Projesi)
+# Delivery Route Optimization with Ant Colony Optimization
+
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)
+![OSMnx](https://img.shields.io/badge/OSMnx-7EBC6F?style=flat-square&logo=openstreetmap&logoColor=white)
+![NetworkX](https://img.shields.io/badge/NetworkX-2C5BB4?style=flat-square)
+![Folium](https://img.shields.io/badge/Folium-77B829?style=flat-square)
+
+**English overview** — An interactive tool that finds the shortest delivery route through several stops in the city of Elazığ, Türkiye, using **Ant Colony Optimization (ACO)** on the real road network from OpenStreetMap.
+
+- **Real road distances** — the city network is downloaded with OSMnx and shortest paths between stops are computed with NetworkX, not straight-line distances
+- **Flexible input** — pick stops from a list of known locations, upload a CSV (`name, latitude, longitude`) or click directly on the map
+- **Tunable ACO** — number of ants, iterations, random seed, α (pheromone weight), β (distance weight), ρ (evaporation) and Q
+- **Visual results** — the optimized route on an interactive Folium map, a convergence chart (best / average / worst distance per iteration) and a distance-matrix heatmap
+
+```bash
+pip install -r requirements.txt
+python src/generate_graphml.py      # one-time download of the Elazığ road network
+cd src && streamlit run ui/app.py
+```
+
+The detailed documentation below is in Turkish.
+
+---
+
+## Elâzığ Şehir İçi Teslimat Rotası Optimizasyonu (ACO Projesi)
 
 Bu proje, **Elâzığ** ilinde birden fazla nokta arasındaki en kısa teslimat rotasını bulmak için **Karınca Kolonisi Optimizasyonu (Ant Colony Optimization, ACO)** algoritmasını kullanır. Aşağıda proje yapısı, kurulumu ve kullanım adımları, algoritmanın işleyişi ve sonuçların değerlendirilmesi ayrıntılı olarak açıklanmıştır.
 
@@ -321,3 +346,9 @@ Bu proje, Elâzığ içindeki çeşitli nokta kümelerini (alışveriş merkezle
 
 Sonuçlar, gerçekçi mesafelere dayanmakta ve ACO’nun hızlıca anlamlı rotalar üretmesine imkân tanımaktadır. Gelecekte ek özelliklerle (zaman penceresi, gerçek zamanlı trafik, paralel işlem vb.) daha kapsamlı lojistik çözümler sunmak mümkündür.
 #
+
+---
+
+## Author
+
+**Abdellah Sheikh** — [abdellahsheikh.dev](https://abdellahsheikh.dev) · [LinkedIn](https://www.linkedin.com/in/abdellahsheikh)
