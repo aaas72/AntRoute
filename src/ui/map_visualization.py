@@ -112,7 +112,16 @@ def build_picker_map(
     center: LatLon,
 ) -> folium.Map:
     """Mevcut durakları numaralı işaretlerle gösteren, tıklanabilir seçim haritası."""
+    # Not: Harita gizli bir sekmede (genişlik 0) oluşturulabildiği için fit_bounds
+    # yanlış yakınlaştırma üretir; merkez ve zoom burada hesaplanır.
+    zoom = 13
+    if len(coords) >= 2:
+        lats = [c[0] for c in coords]
+        lons = [c[1] for c in coords]
+        center = ((min(lats) + max(lats)) / 2, (min(lons) + max(lons)) / 2)
+        zoom = _zoom_for_extent(max(lats) - min(lats), max(lons) - min(lons), center[0])
     m = _base_map(coords or [center], center=center)
+    m.options["zoom"] = zoom
     for i, (name, c) in enumerate(zip(names, coords)):
         folium.Marker(
             location=c,
@@ -120,3 +129,16 @@ def build_picker_map(
             icon=_number_icon(str(i + 1), DEPOT_COLOR if i == 0 else STOP_COLOR),
         ).add_to(m)
     return m
+
+
+def _zoom_for_extent(lat_span: float, lon_span: float, mid_lat: float = 0.0,
+                     width_px: int = 650, height_px: int = 400) -> int:
+    """Verilen enlem/boylam aralığını yaklaşık width_px x height_px alana sığdıran Leaflet zoom'u."""
+    import math
+
+    lon_span = max(lon_span, 1e-4) * 1.2  # kenar payı
+    lat_span = max(lat_span, 1e-4) * 1.2
+    z_lon = math.log2(360 * width_px / (256 * lon_span))
+    # Web Mercator: 1° enlem, 1° boylamdan 1/cos(enlem) kat daha uzun görünür
+    z_lat = math.log2(360 * math.cos(math.radians(mid_lat)) * height_px / (256 * lat_span))
+    return int(max(3, min(17, math.floor(min(z_lon, z_lat)))))

@@ -1,217 +1,243 @@
-# Delivery Route Optimization with Ant Colony Optimization
+<div align="center">
 
-![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
+# AntRoute
+
+**Delivery route optimization on a real road network with Ant Colony Optimization**
+
+[![tests](https://github.com/aaas72/AntRoute/actions/workflows/tests.yml/badge.svg)](https://github.com/aaas72/AntRoute/actions/workflows/tests.yml)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)
 ![OSMnx](https://img.shields.io/badge/OSMnx-7EBC6F?style=flat-square&logo=openstreetmap&logoColor=white)
 ![NetworkX](https://img.shields.io/badge/NetworkX-2C5BB4?style=flat-square)
-![Folium](https://img.shields.io/badge/Folium-77B829?style=flat-square)
-[![tests](https://github.com/aaas72/RotasOptimizasyonu/actions/workflows/tests.yml/badge.svg)](https://github.com/aaas72/RotasOptimizasyonu/actions/workflows/tests.yml)
+![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
-**English overview** — An interactive tool that finds the shortest delivery route through several stops in the city of Elazığ, Türkiye, using **Ant Colony Optimization (ACO)** on the real road network from OpenStreetMap.
+**English** · [Türkçe](README.tr.md)
 
-- **Real, directed road costs** — shortest paths on the OSM drive network respect one-way streets, so the distance matrix is asymmetric; optimize by **distance (km)** or **travel time (min)**
-- **Routes drawn on the actual roads** — not straight lines between stops
-- **Improved ACO** — fixed depot, closed tour or open path, elitist ant, MAX-MIN pheromone bounds, 2-opt local search, early stopping
-- **Benchmarks built in** — every run is compared with Nearest Neighbour, Nearest Neighbour + 2-opt and (for ≤ 9 stops) the exact brute-force optimum
-- **Flexible input** — pick from known locations, click on the map, or upload a CSV; edit everything in one table
-- **Export** — route table as CSV and one-click Google Maps directions
-- **Works offline too** — without the road network file the app falls back to straight-line distance × 1.3
+<img src="docs/images/hero.png" alt="AntRoute: optimized 20-stop delivery route drawn on the Elazığ road network" width="100%">
 
-```bash
-pip install -r requirements.txt
-python src/generate_graphml.py      # one-time download of the Elazığ road network (~12 MB)
-python src/main.py                  # or: streamlit run src/ui/app.py
-```
+</div>
 
-The detailed documentation below is in Turkish.
+AntRoute finds the shortest (or fastest) order in which a courier can visit a set of stops in **Elazığ, Türkiye**, and draws the result on the actual streets. Distances come from the OpenStreetMap drive network, one-way streets included, and the route is optimized with an improved **Ant Colony Optimization** algorithm. Every run is benchmarked against classic heuristics, and against the exact optimum when the problem is small enough.
 
----
+## Contents
 
-## Elâzığ Şehir İçi Teslimat Rotası Optimizasyonu (ACO Projesi)
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Using the app](#using-the-app)
+- [How it works](#how-it-works)
+- [Results](#results)
+- [Project structure](#project-structure)
+- [Using the algorithm as a library](#using-the-algorithm-as-a-library)
+- [Testing](#testing)
+- [Roadmap](#roadmap)
 
-Bu proje, **Elâzığ**'da birden fazla durak arasındaki en kısa (veya en hızlı) teslimat rotasını bulmak için **Karınca Kolonisi Optimizasyonu (Ant Colony Optimization, ACO)** algoritmasını OpenStreetMap'in gerçek yol ağı üzerinde kullanır.
+## Features
 
-## İçindekiler
+| | |
+|---|---|
+| **Real, directed road costs** | Shortest paths on the OSM drive network respect one-way streets, so A→B and B→A can differ (by up to 1.2 km between the built-in Elazığ stops). |
+| **Distance or time** | Optimize for kilometres or for driving minutes; travel times come from OSM speed limits, with road-type defaults where tags are missing. |
+| **Routes on the actual streets** | Each leg is drawn with the real road geometry, not as a straight line. |
+| **Improved ACO** | Fixed depot, closed tour or open path, elitist ant, MAX-MIN pheromone bounds, 2-opt local search, early stopping. |
+| **Built-in benchmarks** | Every run is compared with Nearest Neighbour, Nearest Neighbour + 2-opt, and the brute-force optimum for ≤ 9 stops. |
+| **Three ways to add stops** | Pick from 20 known Elazığ locations, click on the map, or upload a CSV, then edit everything in one table. |
+| **Export** | Leg-by-leg CSV and one-click Google Maps directions (split automatically when a route exceeds Google's stop limit). |
+| **Works without the network file** | Falls back to straight-line distance × 1.3 and offers to download the road network from the sidebar. |
 
-1. [Proje Yapısı](#proje-yapısı)
-2. [Kurulum ve Çalıştırma](#kurulum-ve-çalıştırma)
-3. [Arayüz ve Kullanım](#arayüz-ve-kullanım)
-4. [ACO Algoritmasının İşleyişi](#aco-algoritmasının-işleyişi)
-5. [Maliyet Matrisi Hesaplama](#maliyet-matrisi-hesaplama)
-6. [Sonuçlar ve Karşılaştırma](#sonuçlar-ve-karşılaştırma)
-7. [Testler](#testler)
-8. [Gelecek Geliştirmeler](#gelecek-geliştirmeler)
+## Quick start
 
----
-
-## Proje Yapısı
-
-```
-RotasOptimizasyonu/
-├── requirements.txt / requirements-dev.txt
-├── .github/workflows/tests.yml   # GitHub Actions: her push'ta pytest
-├── tests/                        # ACO, TSP, CSV/dışa aktarım, OSM ve arayüz testleri
-└── src/
-    ├── main.py                   # `python src/main.py` ile uygulamayı başlatır
-    ├── generate_graphml.py       # Elâzığ yol ağını indirip src/data/elazig_osm.graphml'e kaydeder
-    ├── aco/
-    │   ├── algorithm.py          # ACO (depo, açık/kapalı rota, elitist, MMAS sınırları, 2-opt)
-    │   ├── tsp.py                # En Yakın Komşu, 2-opt, kaba kuvvet (kesin optimum)
-    │   └── utils.py              # Haversine mesafesi ve yaklaşık mesafe matrisi
-    ├── data/
-    │   ├── osm_data.py           # Yol ağı indirme/yükleme, nokta eşleme, mesafe/süre matrisi, rota geometrisi
-    │   └── location_data.py      # Hazır Elâzığ noktaları ve CSV okuma
-    └── ui/
-        ├── app.py                # Streamlit arayüzü
-        ├── map_visualization.py  # Folium haritaları (gerçek yol geometrisi, numaralı duraklar)
-        ├── plots.py              # Plotly: yakınsama, karşılaştırma, ısı haritası
-        └── export.py             # Rota tablosu, Google Maps bağlantıları
-```
-
----
-
-## Kurulum ve Çalıştırma
-
-Python **3.10+** gereklidir.
+Requires **Python 3.10+**.
 
 ```bash
-# 1) Sanal ortam (opsiyonel)
+git clone https://github.com/aaas72/AntRoute.git
+cd AntRoute
+
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1        # Windows PowerShell
-# source .venv/bin/activate         # Linux / macOS
+.venv\Scripts\activate            # Windows
+# source .venv/bin/activate       # Linux / macOS
 
-# 2) Paketler
 pip install -r requirements.txt
-
-# 3) Elâzığ yol ağı (bir kez, 1-3 dk)
-python src/generate_graphml.py
-#   --radius 12000                  # merkez etrafında indirilecek yarıçap (m, varsayılan 9000)
-#   --place "Merkez, Elazığ, Türkiye"
-
-# 4) Uygulama
-python src/main.py                  # veya: streamlit run src/ui/app.py
+python src/generate_graphml.py    # one-time: downloads the Elazığ road network (~12 MB, 1-3 min)
+python src/main.py                # opens http://localhost:8501
 ```
 
-- Script, hangi klasörden çalıştırılırsa çalıştırılsın dosyayı `src/data/elazig_osm.graphml` konumuna kaydeder.
-- Overpass sunucusu meşgulse otomatik olarak yedek sunucular denenir.
-- Dosya yoksa uygulama yine çalışır (kuş uçuşu × 1.3 yaklaşık mesafe) ve kenar çubuğunda **"Elâzığ yol ağını indir"** butonu sunar.
-- Yol ağına hız ve seyahat süresi bilgisi eklenir (OSM `maxspeed` etiketi, yoksa yol tipine göre varsayılan hız).
+`generate_graphml.py` downloads a 9 km radius around the city centre by default. Use `--radius 12000` for a larger area or `--place "Merkez, Elazığ, Türkiye"` to download by place name. If the public Overpass server is busy, mirror servers are tried automatically.
 
----
+## Using the app
 
-## Arayüz ve Kullanım
+The interface is in Turkish. A typical session has three steps.
 
-### 1. Teslimat durakları
+### 1. Add delivery stops
 
-Duraklar üç yolla eklenir ve hepsi sağdaki **tek bir düzenlenebilir tabloda** toplanır (ad, enlem, boylam düzenlenebilir; satır silinebilir):
+<img src="docs/images/stops.png" alt="Stop input: map picker on the left, editable stop table on the right" width="100%">
 
-- **Hazır noktalar** — Elâzığ'daki 20 nokta; aranabilir çoklu seçim.
-- **Haritadan ekle** — haritaya her tıklama yeni bir durak ekler; mevcut duraklar numaralı işaretlerle görünür.
-- **CSV yükle** — kolonlar `name, latitude, longitude` (alternatif: `ad, enlem, boylam`, `lat, lon/lng`); ayraç `,` veya `;`. Örnek şablon indirilebilir.
+- **Hazır noktalar (preset points):** a searchable list of 20 Elazığ locations.
+- **Haritadan ekle (add from map):** every click on the map adds a stop.
+- **CSV yükle (upload CSV):** columns `name, latitude, longitude`. Turkish names (`ad, enlem, boylam`) and the `;` separator also work, and a template is available for download.
 
-### 2. Rota
+All stops end up in the table on the right, where names and coordinates can be edited and rows deleted. Pick the **depot** (start point), choose whether the courier **returns to the depot**, then press **Optimizasyonu başlat** (start optimization).
 
-- **Başlangıç noktası (depo)** — rotanın başladığı durak.
-- **Depoya geri dön** — kapalı tur (kurye depoya döner) veya açık rota (son durakta biter).
+### 2. Tune the algorithm (sidebar, optional)
 
-### Kenar çubuğu ayarları
-
-| Ayar | Açıklama | Varsayılan |
+| Setting | Meaning | Default |
 |---|---|---|
-| Gerçek yol ağı (OSM) | Kapalıysa kuş uçuşu × 1.3 | Açık |
-| Optimizasyon kriteri | Mesafe (km) veya Süre (dk) | Mesafe |
-| Karınca sayısı / Maks. iterasyon / Tohum | | 20 / 100 / 42 |
-| Erken durdurma (sabır) | Bu kadar iterasyon iyileşme yoksa dur | 30 |
-| α, β, ρ, Q | Feromon etkisi, mesafe etkisi, buharlaşma, feromon sabiti | 1.0, 3.0, 0.3, 100 |
-| Elitist ağırlık | En iyi rotaya ekstra feromon | 1.0 |
-| 2-opt yerel arama | İterasyonun en iyi rotasındaki kesişmeleri giderir | Açık |
+| Gerçek yol ağı (OSM) | Use the real road network; off = straight-line × 1.3 | on |
+| Optimizasyon kriteri | Optimize distance (km) or time (min) | distance |
+| Karınca sayısı / Maks. iterasyon / Tohum | Ants per iteration / max iterations / random seed | 20 / 100 / 42 |
+| Erken durdurma (sabır) | Stop after this many iterations without improvement | 30 |
+| α, β, ρ, Q | Pheromone weight, distance weight, evaporation, deposit constant | 1, 3, 0.3, 100 |
+| Elitist ağırlık | Extra pheromone on the best route so far | 1 |
+| 2-opt yerel arama | Remove crossings from each iteration's best route | on |
 
-### Sonuçlar
+### 3. Read the results
 
-- **Özet** — toplam mesafe, tahmini sürüş süresi, En Yakın Komşu'ya göre iyileşme, optimuma uzaklık (≤ 9 durak).
-- **Harita** — rota gerçek yollar üzerinde (hareketli çizgi), depo "D", duraklar ziyaret sırasıyla numaralı; her ayağın üzerine gelince mesafe/süre görünür.
-- **Rota detayı** — ayak ayak tablo (mesafe, süre, kümülatif), CSV indirme, **Google Maps'te aç** (11'den fazla durakta rota parçalara bölünür).
-- **Yakınsama** — iterasyon başına en iyi / ortalama / en kötü maliyet.
-- **Karşılaştırma** — ACO, En Yakın Komşu, En Yakın Komşu + 2-opt ve kesin optimum.
-- **Maliyet matrisi** — mesafe veya süre ısı haritası; matrisin asimetriklik derecesi.
+The summary shows total distance, estimated driving time, improvement over Nearest Neighbour, and either the gap to the exact optimum (≤ 9 stops) or the computation time. Five tabs hold the details:
 
----
+<table>
+<tr>
+<td width="50%"><img src="docs/images/route_details.png" alt="Route details table"><br><b>Rota detayı (route details):</b> leg-by-leg distance, time and running totals, plus CSV export and Google Maps links.</td>
+<td width="50%"><img src="docs/images/convergence.png" alt="Convergence chart"><br><b>Yakınsama (convergence):</b> best-so-far, iteration average and iteration worst route cost.</td>
+</tr>
+<tr>
+<td><img src="docs/images/comparison.png" alt="Method comparison"><br><b>Karşılaştırma (comparison):</b> ACO against the baseline heuristics and the exact optimum, on the same cost matrix.</td>
+<td><img src="docs/images/cost_matrix.png" alt="Cost matrix heatmap"><br><b>Maliyet matrisi (cost matrix):</b> distance or time between every pair of stops; its asymmetry shows the effect of one-way streets.</td>
+</tr>
+</table>
 
-## ACO Algoritmasının İşleyişi
+## How it works
 
-1. **Hazırlık** — `n × n` maliyet matrisi (km veya dk). Ulaşılamayan çiftler (`inf`) büyük bir ceza değeriyle değiştirilir. Sezgisel bilgi `η = (1/d)^β`. Başlangıç feromonu `τ₀ = Q / L_NN` (En Yakın Komşu rotasının uzunluğu).
-2. **Rota oluşturma** — her karınca depodan başlar ve bir sonraki durağı `τ^α · η` ile orantılı olasılıkla seçer (vektörel, `numpy.random.Generator`).
-3. **Yerel arama** — iterasyonun en iyi rotasına **2-opt** uygulanır. Asimetrik matrislerde ters çevrilen parçanın iç kenarlarının maliyeti de hesaba katılır.
-4. **Feromon güncelleme**
-   - Buharlaşma: `τ ← (1 − ρ) · τ`
-   - Her karınca: rotasındaki kenarlara `Q / L`
-   - Elitist: şimdiye kadarki en iyi rotaya `e · Q / L_best`
-   - **MAX-MIN sınırları**: `τ` değerleri `[τ_min, τ_max]` aralığına kırpılır (Stützle & Hoos, 2000). Bu, feromonun tek bir rotada kilitlenmesini (durgunluk) önler.
-   - Matris simetrikse feromon iki yöne, asimetrikse yalnızca gidilen yöne eklenir.
-5. **Durdurma** — maksimum iterasyon veya `sabır` kadar iterasyon iyileşme olmaması.
+```mermaid
+flowchart LR
+    A[Stops<br/>list · map · CSV] --> B[Snap to nearest<br/>road node]
+    G[(OSM drive network<br/>GraphML)] --> B
+    B --> C[Dijkstra from each stop<br/>distance + time matrices]
+    C --> D[ACO<br/>+ 2-opt + MMAS bounds]
+    C --> E[Baselines<br/>NN · NN+2-opt · brute force]
+    D --> F[Road geometry<br/>for each leg]
+    G --> F
+    F --> H[Map · tables · charts<br/>CSV · Google Maps]
+    E --> H
+```
+
+### Cost matrix
+
+1. **Snapping:** each stop is attached to its nearest road node. Stops more than 300 m from the road trigger a warning.
+2. **Shortest paths:** one Dijkstra run per stop (`n` runs rather than `n²/2`) gives a full row of the matrix, both for `length` (km) and for `travel_time` (min).
+3. **Directed costs:** the drive network contains one-way streets, so the matrix is **not** symmetric and is never forced to be.
+4. **Unreachable pairs:** pairs with no path are marked `inf`. The algorithm replaces them with a large penalty and the UI reports them.
+
+### Ant Colony Optimization
+
+Each iteration, every ant builds a route starting at the depot. From stop *i* it picks the next unvisited stop *j* with probability
+
+$$p_{ij} \propto \tau_{ij}^{\,\alpha}\cdot\left(\frac{1}{d_{ij}}\right)^{\beta}$$
+
+where τ is the pheromone and *d* the cost. After all ants have finished:
+
+1. **Local search:** the iteration's best route is improved with **2-opt**. On asymmetric matrices the reversed segment's internal edges are re-costed too.
+2. **Evaporation:** τ ← (1 − ρ) · τ.
+3. **Deposit:** each ant adds Q / L to the edges it used, and the best-so-far route adds an extra *e* · Q / L_best (elitist strategy). Deposits go in both directions only when the matrix is symmetric.
+4. **MAX-MIN bounds:** τ is clipped to [τ_min, τ_max] ([Stützle & Hoos, 2000](https://doi.org/10.1016/S0167-739X(00)00043-1)). Without the bounds, pheromone collapses onto one route and the search stops exploring.
+
+The run ends after the maximum number of iterations, or earlier once the best route has not improved for `patience` iterations.
+
+## Results
+
+20 built-in Elazığ stops, closed tour, real directed road distances, 20 ants, 100 iterations:
+
+| Method | Total distance | Time |
+|---|---:|---:|
+| Nearest Neighbour | 33.78 km | < 1 ms |
+| Nearest Neighbour + 2-opt | 29.18 km | ~ 5 ms |
+| Previous ACO version* | 30.33 – 31.47 km | ~ 1.7 s |
+| **AntRoute ACO** (3 seeds) | **28.90 – 29.06 km** | **~ 0.5 s** |
+
+\* The previous version symmetrised the matrix, so it displayed 29.43 km. Its routes are 30.3 – 31.5 km once driven on the real one-way streets.
+
+On random 8-stop problems the test suite checks that ACO hits the exact optimum in at least 90 % of cases and always lands within 2 % of it.
+
+## Project structure
+
+```
+AntRoute/
+├── src/
+│   ├── main.py                  # launcher: python src/main.py
+│   ├── generate_graphml.py      # downloads the road network (CLI)
+│   ├── aco/
+│   │   ├── algorithm.py         # ACO solver
+│   │   ├── tsp.py               # nearest neighbour, 2-opt, brute force
+│   │   └── utils.py             # haversine distance / matrix
+│   ├── data/
+│   │   ├── osm_data.py          # network download & load, snapping, matrices, leg geometry
+│   │   └── location_data.py     # preset Elazığ stops, CSV reader
+│   └── ui/
+│       ├── app.py               # Streamlit app
+│       ├── map_visualization.py # Folium maps
+│       ├── plots.py             # Plotly charts
+│       └── export.py            # route table, Google Maps links
+├── tests/                       # pytest suite (48 tests)
+├── docs/
+│   ├── images/                  # screenshots used in this README
+│   └── screenshots.py           # regenerates them with Playwright
+└── .github/workflows/tests.yml  # CI
+```
+
+## Using the algorithm as a library
+
+The solver is independent of the UI and accepts any square cost matrix:
 
 ```python
-from aco.algorithm import ACO
+import numpy as np
+from aco.algorithm import ACO          # run from src/, or add src/ to PYTHONPATH
 
-aco = ACO(dist_matrix, ant_count=20, start=0, return_to_start=True, seed=42)
-best_route, best_length, history = aco.run(iterations=100, patience=30)
+dist = np.array([[0, 2, 9, 10],
+                 [1, 0, 6, 4],
+                 [15, 7, 0, 8],
+                 [6, 3, 12, 0]], dtype=float)   # asymmetric costs are fine
+
+aco = ACO(dist, ant_count=20, start=0, return_to_start=True, seed=42)
+route, cost, history = aco.run(iterations=100, patience=30)
+print(route, cost)   # [0, 2, 3, 1, 0] 21.0
 ```
 
----
+`history` holds the best, average and worst cost of every iteration. `progress_callback=f(it, total, best)` reports progress while the solver runs.
 
-## Maliyet Matrisi Hesaplama
-
-1. **Nokta eşleme** — her durak, en yakın yol düğümüne (Haversine) bağlanır; 300 m'den uzak duraklar için uyarı verilir.
-2. **Dijkstra** — her durak için **tek bir** `single_source_dijkstra_path_length` çağrısı (eskiden her çift için ayrı çağrı: `n²/2` → `n`). Hem `length` (km) hem `travel_time` (dk) hesaplanır.
-3. **Yönlü ağ** — sürüş ağı tek yönlü yolları içerdiğinden `d[i][j] ≠ d[j][i]` olabilir. Elâzığ'daki 20 hazır noktada gidiş-dönüş farkı **1.2 km**'ye kadar çıkmaktadır; bu yüzden matris artık simetrik varsayılmaz.
-4. **Rota geometrisi** — seçilen rotanın her ayağı için yol kenarlarının gerçek geometrisi haritaya çizilir.
-
----
-
-## Sonuçlar ve Karşılaştırma
-
-20 hazır Elâzığ noktası, kapalı tur, gerçek (yönlü) yol mesafeleri, 20 karınca / 100 iterasyon:
-
-| Yöntem | Toplam mesafe | Süre |
-|---|---|---|
-| En Yakın Komşu | 33.78 km | < 1 ms |
-| En Yakın Komşu + 2-opt | 29.18 km | ~ 5 ms |
-| Önceki ACO sürümü* | 30.33 – 31.47 km | ~ 1.7 sn |
-| **Yeni ACO** (3 farklı tohum) | **28.90 – 29.06 km** | **~ 0.5 sn** |
-
-\* Önceki sürüm simetrik matris kullandığından ekranda 29.43 km gösteriyordu; bulduğu rotanın gerçek yönlü mesafesi 30.3 – 31.5 km'dir.
-
-≤ 9 duraklı problemlerde ACO sonucu kaba kuvvetle bulunan kesin optimumla karşılaştırılır; testlerde rastgele örneklerin en az %90'ında kesin optimum bulunmaktadır.
-
-**Uygulama alanları:** kurye/teslimat lojistiği, saha ekiplerinin ziyaret sırası, turistik gezi rotaları.
-
----
-
-## Testler
+## Testing
 
 ```bash
 pip install -r requirements-dev.txt
 pytest -q
 ```
 
-- `tests/test_aco.py` — kesin optimumla karşılaştırma, simetrik/asimetrik, açık/kapalı rota, depo, ulaşılamayan kenarlar, tohum tekrarlanabilirliği, erken durdurma
-- `tests/test_io.py` — CSV okuma (alternatif kolonlar, `;` ayracı), Google Maps bağlantıları, rota tablosu
-- `tests/test_osm.py` — gerçek yol ağıyla matris ve geometri (GraphML yoksa atlanır)
-- `tests/test_app.py` — Streamlit arayüzünün uçtan uca testi (`streamlit.testing`)
+| File | Covers |
+|---|---|
+| `tests/test_aco.py` | optimality on small problems, symmetric/asymmetric, open/closed routes, depot, unreachable edges, seed reproducibility, early stopping |
+| `tests/test_io.py` | CSV parsing (aliases, `;`, duplicates, errors), Google Maps links, route table |
+| `tests/test_osm.py` | matrices and leg geometry on the real network (skipped if the GraphML file is absent) |
+| `tests/test_app.py` | end-to-end UI runs with `streamlit.testing` |
 
----
+To regenerate the screenshots after a UI change:
 
-## Gelecek Geliştirmeler
+```bash
+pip install playwright && python -m playwright install chromium
+python docs/screenshots.py
+```
 
-- [x] ~~Trafik/süre temelli hesaplama~~ → hız sınırlarına dayalı süre optimizasyonu eklendi
-- [x] ~~Harita üzerinde nokta silme~~ → tüm duraklar tabloda düzenlenip silinebilir
-- [ ] **Zaman pencereleri (VRPTW)** — durakların belirli saatlerde ziyaret edilmesi
-- [ ] **Birden fazla araç / kapasite (CVRP)** — durakların araçlar arasında bölüştürülmesi
-- [ ] **Gerçek zamanlı trafik** — OpenRouteService / OSRM ile canlı süreler
-- [ ] **Paralel karıncalar** — çok çekirdekli rota oluşturma
+## Roadmap
 
----
+- [x] Time-based optimization
+- [x] Editing and deleting stops
+- [ ] Time windows (VRPTW)
+- [ ] Multiple vehicles with capacity (CVRP)
+- [ ] Live traffic via OSRM / OpenRouteService
+- [ ] Parallel ant construction
+
+## License
+
+[MIT](LICENSE) © Abdellah Sheikh
 
 ## Author
 
-**Abdellah Sheikh** — [abdellahsheikh.dev](https://abdellahsheikh.dev) · [LinkedIn](https://www.linkedin.com/in/abdellahsheikh)
+**Abdellah Sheikh** · [abdellahsheikh.dev](https://abdellahsheikh.dev) · [LinkedIn](https://www.linkedin.com/in/abdellahsheikh)
+
+Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.

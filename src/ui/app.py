@@ -124,8 +124,10 @@ def stops_editor() -> pd.DataFrame:
         height=min(420, 38 + 35 * (len(ss.stops) + 1)),
         column_config={
             "Ad": st.column_config.TextColumn("Ad", width="medium"),
-            "Enlem": st.column_config.NumberColumn("Enlem", min_value=-90, max_value=90, format="%.5f"),
-            "Boylam": st.column_config.NumberColumn("Boylam", min_value=-180, max_value=180, format="%.5f"),
+            "Enlem": st.column_config.NumberColumn("Enlem", min_value=-90, max_value=90, format="%.5f",
+                                                   width="small"),
+            "Boylam": st.column_config.NumberColumn("Boylam", min_value=-180, max_value=180, format="%.5f",
+                                                    width="small"),
         },
     )
     c1, c2 = st.columns(2)
@@ -391,15 +393,14 @@ def show_results(res: Dict, current_signature: Optional[Tuple]) -> None:
         table = route_table(names, coords, route, legs)
         st.dataframe(table, hide_index=True, width="stretch")
         st.markdown("**Rota:** " + " → ".join(names[i] for i in route))
-        c1, c2 = st.columns([1, 2])
-        c1.download_button(":material/download: Rotayı CSV indir",
-                           table.to_csv(index=False).encode("utf-8-sig"),
-                           "optimize_rota.csv", "text/csv", width="stretch")
         links = google_maps_links(coords, route)
-        with c2:
-            for k, url in enumerate(links, 1):
-                label = "Google Maps'te aç" + (f" ({k}/{len(links)}. bölüm)" if len(links) > 1 else "")
-                st.link_button(f":material/directions_car: {label}", url)
+        cols = st.columns(1 + max(len(links), 2))
+        cols[0].download_button(":material/download: Rotayı CSV indir",
+                                table.to_csv(index=False).encode("utf-8-sig"),
+                                "optimize_rota.csv", "text/csv", width="stretch")
+        for k, url in enumerate(links, 1):
+            label = "Google Maps" + (f" ({k}/{len(links)})" if len(links) > 1 else "'te aç")
+            cols[k].link_button(f":material/directions_car: {label}", url, width="stretch")
 
     with tabs[2]:
         hist = res["history"]
@@ -436,17 +437,18 @@ def show_results(res: Dict, current_signature: Optional[Tuple]) -> None:
 # Ana sayfa
 # ====================================================================== #
 def main() -> None:
-    st.set_page_config(page_title="Elâzığ Rota Optimizasyonu", page_icon=":material/route:",
+    st.set_page_config(page_title="AntRoute · Elâzığ Rota Optimizasyonu", page_icon=":material/route:",
                        layout="wide")
     init_state()
     has_network = network_available()
     cfg = sidebar_settings(has_network)
 
-    st.title("Elâzığ Teslimat Rotası Optimizasyonu")
+    st.title(":material/route: AntRoute")
+    st.markdown("**Elâzığ Teslimat Rotası Optimizasyonu**")
     st.caption("Karınca Kolonisi Optimizasyonu (ACO) ile gerçek yol ağı üzerinde en kısa teslimat rotası.")
 
     st.subheader("1. Teslimat durakları")
-    col_add, col_list = st.columns([3, 2], gap="large")
+    col_add, col_list = st.columns([5, 4], gap="large")
     with col_list:
         current = stops_editor()
     with col_add:
