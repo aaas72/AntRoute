@@ -3,11 +3,15 @@
 src/aco/utils.py
 
 ACO algoritması veya başka yerler için yardımcı fonksiyonlar içerir.
-Örnek: Haversine mesafesi hesaplama fonksiyonu.
+Örnek: Haversine mesafesi ve yol ağı yokken kullanılan yaklaşık mesafe matrisi.
 """
 
 import math
-from typing import Tuple
+from typing import Sequence, Tuple
+
+import numpy as np
+
+EARTH_RADIUS_KM = 6371.0
 
 def haversine_distance(coord1: Tuple[float, float], coord2: Tuple[float, float]) -> float:
     """
@@ -19,7 +23,7 @@ def haversine_distance(coord1: Tuple[float, float], coord2: Tuple[float, float])
     Returns:
       - Mesafe (kilometre cinsinden).
     """
-    R = 6371.0  # Dünya yarıçapı (km)
+    R = EARTH_RADIUS_KM
 
     lat1, lon1 = coord1
     lat2, lon2 = coord2
@@ -33,3 +37,26 @@ def haversine_distance(coord1: Tuple[float, float], coord2: Tuple[float, float])
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     return R * c
+
+
+def haversine_matrix(
+    coords: Sequence[Tuple[float, float]],
+    detour_factor: float = 1.3,
+) -> np.ndarray:
+    """
+    Kuş uçuşu (Haversine) mesafe matrisi (km).
+
+    Yol ağı verisi yokken yaklaşık sonuç vermek için kullanılır. Şehir içi yollar
+    düz çizgiden daha uzun olduğundan sonuç `detour_factor` ile çarpılır
+    (şehir içi için tipik değer ~1.3).
+    """
+    pts = np.radians(np.asarray(coords, dtype=float))
+    if pts.size == 0:
+        return np.zeros((0, 0))
+    lat = pts[:, 0][:, None]
+    lon = pts[:, 1][:, None]
+    d_lat = lat.T - lat
+    d_lon = lon.T - lon
+    a = np.sin(d_lat / 2) ** 2 + np.cos(lat) * np.cos(lat.T) * np.sin(d_lon / 2) ** 2
+    dist = 2 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
+    return dist * detour_factor

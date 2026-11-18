@@ -39,6 +39,22 @@ def load_default_locations() -> Dict[str, Tuple[float, float]]:
         "Elâzığ Otobüs Garajı":               (38.6725, 39.2218),
     }
 
+# CSV'de kabul edilen alternatif kolon adları (küçük harfe çevrilerek karşılaştırılır)
+COLUMN_ALIASES = {
+    "name": ("name", "ad", "isim", "nokta", "durak", "adı"),
+    "latitude": ("latitude", "lat", "enlem"),
+    "longitude": ("longitude", "lon", "lng", "long", "boylam"),
+}
+
+
+def _resolve_column(columns, wanted: str, aliases) -> str:
+    lookup = {str(c).strip().lower(): c for c in columns}
+    for alias in (wanted, *aliases):
+        if alias.lower() in lookup:
+            return lookup[alias.lower()]
+    raise KeyError(wanted)
+
+
 def load_locations_from_csv(
     path,
     lat_col: str = "latitude",
@@ -47,15 +63,34 @@ def load_locations_from_csv(
 ) -> Dict[str, Tuple[float, float]]:
     """
     CSV dosyasından teslimat/ticari nokta listesini okur.
-    Gerekli kolonlar: name, latitude, longitude.
+    Gerekli kolonlar: name, latitude, longitude
+    (alternatifler: ad/isim, lat/enlem, lon/lng/boylam). Ayraç olarak , veya ; kabul edilir.
     Format: { "YerAdı": (latitude, longitude), ... }
     """
-    df = pd.read_csv(path)
-    required_cols = {name_col, lat_col, lon_col}
-    if not required_cols.issubset(df.columns):
-        raise ValueError(f"CSV dosyası şu kolonları içermeli: {required_cols}")
+    df = pd.read_csv(path, sep=None, engine="python", encoding="utf-8-sig")
+    try:
+        name_c = _resolve_column(df.columns, name_col, COLUMN_ALIASES["name"])
+        lat_c = _resolve_column(df.columns, lat_col, COLUMN_ALIASES["latitude"])
+        lon_c = _resolve_column(df.columns, lon_col, COLUMN_ALIASES["longitude"])
+    except KeyError:
+        raise ValueError(
+            f"CSV dosyası şu kolonları içermeli: {name_col}, {lat_col}, {lon_col} "
+            f"(bulunan: {', '.join(map(str, df.columns))})"
+        )
 
     locations: Dict[str, Tuple[float, float]] = {}
-    for _, row in df.iterrows():
-        locations[row[name_col]] = (float(row[lat_col]), float(row[lon_col]))
+    for i, row in df.iterrows():
+        try:
+            lat = float(str(row[lat_c]).replace(",", "."))
+            lon = float(str(row[lon_c]).replace(",", "."))
+        except ValueError:
+            raise ValueError(f"{i + 2}. satırda geçersiz koordinat: {row[lat_c]}, {row[lon_c]}")
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise ValueError(f"{i + 2}. satırda koordinat aralık dışında: {lat}, {lon}")
+        name = str(row[name_c]).strip() if pd.notna(row[name_c]) else ""
+        name = name or f"Nokta {i + 1}"
+        base, k = name, 2
+        while name in locations:  # aynı isimli noktalar birbirini ezmesin
+            name, k = f"{base} ({k})", k + 1
+        locations[name] = (lat, lon)
     return locations

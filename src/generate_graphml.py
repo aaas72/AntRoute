@@ -2,36 +2,47 @@
 """
 generate_graphml.py
 
-Elâzığ ilinin OSM yol ağını indirir ve
-src/data/elazig_osm.graphml dosyasına kaydeder.
+Elâzığ yol ağını OpenStreetMap'ten indirir (hız ve seyahat süresi bilgisiyle)
+ve src/data/elazig_osm.graphml dosyasına kaydeder. Yalnızca bir kez çalıştırın.
 
-Bu dosyayı yalnızca bir kez çalıştırın.
+Kullanım:
+    python src/generate_graphml.py                       # merkez etrafında 9 km
+    python src/generate_graphml.py --radius 12000
+    python src/generate_graphml.py --place "Merkez, Elazığ, Türkiye"
 """
 
-import osmnx as ox
+import argparse
+import logging
+import sys
 from pathlib import Path
 
-def main():
-    print("Başlatılıyor: Elâzığ OSM verisi indiriliyor...")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-    place_name = "Elâzığ, Turkey"
-    network_type = "drive"
+from data.osm_data import (  # noqa: E402
+    DEFAULT_CENTER, DEFAULT_RADIUS_M, GRAPHML_PATH, download_network,
+)
 
-    print(f"OSM'den '{place_name}' bölgesi yükleniyor...")
-    graph = ox.graph_from_place(place_name, network_type=network_type)
 
-    print("Ağ kenarlarına uzunluk (length) bilgisi ekleniyor...")
-    ox.distance.add_edge_lengths(graph)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Elâzığ OSM yol ağını indir.")
+    parser.add_argument("--lat", type=float, default=DEFAULT_CENTER[0], help="Merkez enlemi")
+    parser.add_argument("--lon", type=float, default=DEFAULT_CENTER[1], help="Merkez boylamı")
+    parser.add_argument("--radius", type=int, default=DEFAULT_RADIUS_M, help="Yarıçap (metre)")
+    parser.add_argument("--place", type=str, default=None, help="Yer adı (yarıçap yerine)")
+    parser.add_argument("--network-type", default="drive", help="drive, bike, walk ...")
+    parser.add_argument("--output", type=Path, default=GRAPHML_PATH, help="Çıktı dosyası")
+    args = parser.parse_args()
 
-    output_dir = Path("src/data")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    path = download_network(
+        center=(args.lat, args.lon),
+        radius_m=args.radius,
+        path=args.output,
+        network_type=args.network_type,
+        place=args.place,
+    )
+    print(f"Başarıyla kaydedildi: {path}")
 
-    output_path = output_dir / "elazig_osm.graphml"
-    print(f"GraphML dosyası kaydediliyor: {output_path}")
-    ox.save_graphml(graph, filepath=str(output_path))
-
-    print("Başarıyla kaydedildi: elazig_osm.graphml")
-    print("generate_graphml.py işlemi tamamlandı.")
 
 if __name__ == "__main__":
     main()

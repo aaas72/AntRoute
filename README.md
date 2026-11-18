@@ -5,18 +5,22 @@
 ![OSMnx](https://img.shields.io/badge/OSMnx-7EBC6F?style=flat-square&logo=openstreetmap&logoColor=white)
 ![NetworkX](https://img.shields.io/badge/NetworkX-2C5BB4?style=flat-square)
 ![Folium](https://img.shields.io/badge/Folium-77B829?style=flat-square)
+[![tests](https://github.com/aaas72/RotasOptimizasyonu/actions/workflows/tests.yml/badge.svg)](https://github.com/aaas72/RotasOptimizasyonu/actions/workflows/tests.yml)
 
 **English overview** — An interactive tool that finds the shortest delivery route through several stops in the city of Elazığ, Türkiye, using **Ant Colony Optimization (ACO)** on the real road network from OpenStreetMap.
 
-- **Real road distances** — the city network is downloaded with OSMnx and shortest paths between stops are computed with NetworkX, not straight-line distances
-- **Flexible input** — pick stops from a list of known locations, upload a CSV (`name, latitude, longitude`) or click directly on the map
-- **Tunable ACO** — number of ants, iterations, random seed, α (pheromone weight), β (distance weight), ρ (evaporation) and Q
-- **Visual results** — the optimized route on an interactive Folium map, a convergence chart (best / average / worst distance per iteration) and a distance-matrix heatmap
+- **Real, directed road costs** — shortest paths on the OSM drive network respect one-way streets, so the distance matrix is asymmetric; optimize by **distance (km)** or **travel time (min)**
+- **Routes drawn on the actual roads** — not straight lines between stops
+- **Improved ACO** — fixed depot, closed tour or open path, elitist ant, MAX-MIN pheromone bounds, 2-opt local search, early stopping
+- **Benchmarks built in** — every run is compared with Nearest Neighbour, Nearest Neighbour + 2-opt and (for ≤ 9 stops) the exact brute-force optimum
+- **Flexible input** — pick from known locations, click on the map, or upload a CSV; edit everything in one table
+- **Export** — route table as CSV and one-click Google Maps directions
+- **Works offline too** — without the road network file the app falls back to straight-line distance × 1.3
 
 ```bash
 pip install -r requirements.txt
-python src/generate_graphml.py      # one-time download of the Elazığ road network
-cd src && streamlit run ui/app.py
+python src/generate_graphml.py      # one-time download of the Elazığ road network (~12 MB)
+python src/main.py                  # or: streamlit run src/ui/app.py
 ```
 
 The detailed documentation below is in Turkish.
@@ -25,327 +29,186 @@ The detailed documentation below is in Turkish.
 
 ## Elâzığ Şehir İçi Teslimat Rotası Optimizasyonu (ACO Projesi)
 
-Bu proje, **Elâzığ** ilinde birden fazla nokta arasındaki en kısa teslimat rotasını bulmak için **Karınca Kolonisi Optimizasyonu (Ant Colony Optimization, ACO)** algoritmasını kullanır. Aşağıda proje yapısı, kurulumu ve kullanım adımları, algoritmanın işleyişi ve sonuçların değerlendirilmesi ayrıntılı olarak açıklanmıştır.
-
----
+Bu proje, **Elâzığ**'da birden fazla durak arasındaki en kısa (veya en hızlı) teslimat rotasını bulmak için **Karınca Kolonisi Optimizasyonu (Ant Colony Optimization, ACO)** algoritmasını OpenStreetMap'in gerçek yol ağı üzerinde kullanır.
 
 ## İçindekiler
 
-1. [Proje Yapısı](#proje-yapısı)  
-2. [Gereksinimler ve Kurulum](#gereksinimler-ve-kurulum)  
-3. [Başlangıç Adımları](#başlangıç-adımları)  
-   - 3.1 [Sanal Ortam Oluşturma (Opsiyonel)](#sanalo-ortam-oluşturma-opsiyonel)  
-   - 3.2 [Gerekli Paketlerin Yüklenmesi](#gerekli-paketlerin-yüklenmesi)  
-   - 3.3 [OSM GraphML Dosyasının Oluşturulması (Bir Kez)](#osm-graphml-dosyasının-oluşturulması-bir-kez)  
-   - 3.4 [Uygulamanın Çalıştırılması](#uygulamanın-çalıştırılması)  
-4. [Arayüz ve Kullanım](#arayüz-ve-kullanım)  
-   - 4.1 [Nokta Seçim Yöntemi](#nokta-seçim-yöntemi)  
-   - 4.2 [ACO Parametre Ayarları](#aco-parametre-ayarları)  
-   - 4.3 [Sonuçların Görüntülenmesi](#sonuçların-görüntülenmesi)  
-5. [ACO Algoritmasının İşleyişi](#aco-algoritmasının-işleyişi)  
-6. [Mesafe Matrisi Hesaplama](#mesafe-matrisi-hesaplama)  
-7. [Sonuçların Değerlendirilmesi](#sonuçların-değerlendirilmesi)  
-8. [Gelecek Geliştirmeler](#gelecek-geliştirmeler)  
+1. [Proje Yapısı](#proje-yapısı)
+2. [Kurulum ve Çalıştırma](#kurulum-ve-çalıştırma)
+3. [Arayüz ve Kullanım](#arayüz-ve-kullanım)
+4. [ACO Algoritmasının İşleyişi](#aco-algoritmasının-işleyişi)
+5. [Maliyet Matrisi Hesaplama](#maliyet-matrisi-hesaplama)
+6. [Sonuçlar ve Karşılaştırma](#sonuçlar-ve-karşılaştırma)
+7. [Testler](#testler)
+8. [Gelecek Geliştirmeler](#gelecek-geliştirmeler)
 
 ---
 
 ## Proje Yapısı
 
 ```
-ACO_Project/
-├── generate_graphml.py         # Elâzığ OSM yol ağını indirip src/data/elazig_osm.graphml dosyasına kaydeder
-├── requirements.txt            # Proje için gerekli Python paketlerinin listesi
-├── README.md                   # Bu dosya: Projenin genel tanıtımı ve kullanım kılavuzu
+RotasOptimizasyonu/
+├── requirements.txt / requirements-dev.txt
+├── .github/workflows/tests.yml   # GitHub Actions: her push'ta pytest
+├── tests/                        # ACO, TSP, CSV/dışa aktarım, OSM ve arayüz testleri
 └── src/
+    ├── main.py                   # `python src/main.py` ile uygulamayı başlatır
+    ├── generate_graphml.py       # Elâzığ yol ağını indirip src/data/elazig_osm.graphml'e kaydeder
     ├── aco/
-    │   ├── __init__.py
-    │   ├── algorithm.py        # Karınca Kolonisi Optimizasyonu algoritması
-    │   └── utils.py            # Yardımcı fonksiyonlar (Örneğin Haversine mesafesi)
-    │
+    │   ├── algorithm.py          # ACO (depo, açık/kapalı rota, elitist, MMAS sınırları, 2-opt)
+    │   ├── tsp.py                # En Yakın Komşu, 2-opt, kaba kuvvet (kesin optimum)
+    │   └── utils.py              # Haversine mesafesi ve yaklaşık mesafe matrisi
     ├── data/
-    │   ├── __init__.py
-    │   ├── osm_data.py         # OSM GraphML dosyasını yükler ve mesafe matrisini oluşturur
-    │   └── location_data.py    # Varsayılan nokta listesi (20+ nokta) veya CSV’den yükleme
-    │
-    ├── ui/
-    │   ├── __init__.py
-    │   ├── map_visualization.py    # Folium ile rota haritası gösterimi
-    │   ├── plots.py                # Plotly ile konverjans grafiği ve ısı haritası
-    │   └── app.py                  # Streamlit arayüzü: nokta seçimi, ACO çalıştırma, sonuç gösterimi
-    │
-    └── main.py                  # `python src/main.py` ile Streamlit uygulamasını başlatır
+    │   ├── osm_data.py           # Yol ağı indirme/yükleme, nokta eşleme, mesafe/süre matrisi, rota geometrisi
+    │   └── location_data.py      # Hazır Elâzığ noktaları ve CSV okuma
+    └── ui/
+        ├── app.py                # Streamlit arayüzü
+        ├── map_visualization.py  # Folium haritaları (gerçek yol geometrisi, numaralı duraklar)
+        ├── plots.py              # Plotly: yakınsama, karşılaştırma, ısı haritası
+        └── export.py             # Rota tablosu, Google Maps bağlantıları
 ```
 
 ---
 
-## Gereksinimler ve Kurulum
+## Kurulum ve Çalıştırma
 
-Proje, Python 3.8 veya üzeri sürümlerde çalışır. Aşağıdaki Python paketlerine ihtiyaç vardır:
-
-- `streamlit`  
-- `streamlit-folium`  
-- `folium`  
-- `plotly`  
-- `pandas`  
-- `numpy`  
-- `osmnx`  
-- `networkx`  
-- `shapely`  
-
-Tüm bağımlılıkları yüklemek için:
+Python **3.10+** gereklidir.
 
 ```bash
-pip install -r requirements.txt
-```
-
----
-
-## Başlangıç Adımları
-
-### 3.1 Sanal Ortam Oluşturma (Opsiyonel)
-
-Projenin bağımlılıklarını izole etmek için bir sanal ortam (venv) oluşturabilirsiniz:
-
-```bash
-# Windows (CMD)
+# 1) Sanal ortam (opsiyonel)
 python -m venv .venv
-.venv\Scripts\activate.bat
+.\.venv\Scripts\Activate.ps1        # Windows PowerShell
+# source .venv/bin/activate         # Linux / macOS
 
-# Windows (PowerShell)
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-# Linux / macOS
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 3.2 Gerekli Paketlerin Yüklenmesi
-
-```bash
+# 2) Paketler
 pip install -r requirements.txt
+
+# 3) Elâzığ yol ağı (bir kez, 1-3 dk)
+python src/generate_graphml.py
+#   --radius 12000                  # merkez etrafında indirilecek yarıçap (m, varsayılan 9000)
+#   --place "Merkez, Elazığ, Türkiye"
+
+# 4) Uygulama
+python src/main.py                  # veya: streamlit run src/ui/app.py
 ```
 
-### 3.3 OSM GraphML Dosyasının Oluşturulması (Bir Kez)
-
-Elâzığ ilinin yol ağını OpenStreetMap’ten indirip yerel olarak kaydetmek için:
-
-```bash
-python generate_graphml.py
-```
-
-- Bu işlem birkaç dakika sürebilir.  
-- Çıktı olarak `src/data/elazig_osm.graphml` dosyası oluşturulur.  
-- "Başarıyla kaydedildi: elazig_osm.graphml" mesajını gördüğünüzde işlem tamamlanmıştır.
-
-### 3.4 Uygulamanın Çalıştırılması
-
-```bash
-cd src
-streamlit run ui/app.py
-```
-
-veya
-
-```bash
-python main.py
-```
-
-Tarayıcınızda otomatik olarak Streamlit arayüzü açılacaktır.
+- Script, hangi klasörden çalıştırılırsa çalıştırılsın dosyayı `src/data/elazig_osm.graphml` konumuna kaydeder.
+- Overpass sunucusu meşgulse otomatik olarak yedek sunucular denenir.
+- Dosya yoksa uygulama yine çalışır (kuş uçuşu × 1.3 yaklaşık mesafe) ve kenar çubuğunda **"Elâzığ yol ağını indir"** butonu sunar.
+- Yol ağına hız ve seyahat süresi bilgisi eklenir (OSM `maxspeed` etiketi, yoksa yol tipine göre varsayılan hız).
 
 ---
 
 ## Arayüz ve Kullanım
 
-### 4.1 Nokta Seçim Yöntemi
+### 1. Teslimat durakları
 
-1. **Varsayılan Liste**  
-   - “Varsayılan Liste” seçeneğini işaretleyin.  
-   - Aşağıya “Veri Kaynağı” başlığı altında “Varsayılan Noktalar” veya “CSV Yükle” seçenekleri çıkar.  
-   - **Varsayılan Noktalar**:  
-     - `location_data.py` içinde tanımlı 20’den fazla popüler nokta listesi görünür.  
-     - “Nokta Ara” alanına yazı yazarak listeyi filtreleyin.  
-     - Birden fazla noktayı seçmek için kutucuğu işaretleyin (en az 2 nokta).  
-   - **CSV Yükle**:  
-     - CSV dosyanızda “name, latitude, longitude” sütunları bulunmalıdır.  
-     - Yükleme başarılı olduğunda yüklenen nokta adedi ekranda gösterilir.
+Duraklar üç yolla eklenir ve hepsi sağdaki **tek bir düzenlenebilir tabloda** toplanır (ad, enlem, boylam düzenlenebilir; satır silinebilir):
 
-2. **Haritadan Tıkla**  
-   - “Haritadan Tıkla” seçeneğini işaretleyin.  
-   - Ekranın yan panelinde Folium tabanlı bir harita açılır.  
-   - Haritaya tıklayıp en az 2 nokta seçin. Her fare tıklaması yeni bir nokta ekler.  
-   - Seçilen noktaların listesi haritanın altında “Seçilen Noktalar” başlığıyla gösterilir.  
-   - İstediğiniz zaman “Noktaları Temizle” butonuna basarak seçtiğiniz tüm noktaları sıfırlayabilirsiniz.  
-   - En az 2 nokta seçildiğinde “Optimizasyonu Başlat” butonu aktif hale gelir.
+- **Hazır noktalar** — Elâzığ'daki 20 nokta; aranabilir çoklu seçim.
+- **Haritadan ekle** — haritaya her tıklama yeni bir durak ekler; mevcut duraklar numaralı işaretlerle görünür.
+- **CSV yükle** — kolonlar `name, latitude, longitude` (alternatif: `ad, enlem, boylam`, `lat, lon/lng`); ayraç `,` veya `;`. Örnek şablon indirilebilir.
 
-### 4.2 ACO Parametre Ayarları
+### 2. Rota
 
-- “Karınca Sayısı”: Her iterasyonda kaç karınca çalıştırılacağı (min 2, max 100; varsayılan 20).  
-- “Iterasyon Sayısı”: Kaç tur çalıştırılacağı (min 10, max 1000; varsayılan 100).  
-- “Rastgele Tohum”: RNG için opsiyonel seed değeri (min 0, max 999999; varsayılan 42).  
+- **Başlangıç noktası (depo)** — rotanın başladığı durak.
+- **Depoya geri dön** — kapalı tur (kurye depoya döner) veya açık rota (son durakta biter).
 
-**Gelişmiş Ayarlar** altında:  
-- “Alpha (Feromon Etkisi)” (0.1 – 5.0; varsayılan 1.0)  
-- “Beta (Mesafe Etkisi)” (0.1 – 5.0; varsayılan 3.0)  
-- “Rho (Feromon Buharlaşma Oranı)” (0.01 – 1.0; varsayılan 0.3)  
-- “Q (Feromon Sabiti)” (1 – 500; varsayılan 100)
+### Kenar çubuğu ayarları
 
-### 4.3 Sonuçların Görüntülenmesi
+| Ayar | Açıklama | Varsayılan |
+|---|---|---|
+| Gerçek yol ağı (OSM) | Kapalıysa kuş uçuşu × 1.3 | Açık |
+| Optimizasyon kriteri | Mesafe (km) veya Süre (dk) | Mesafe |
+| Karınca sayısı / Maks. iterasyon / Tohum | | 20 / 100 / 42 |
+| Erken durdurma (sabır) | Bu kadar iterasyon iyileşme yoksa dur | 30 |
+| α, β, ρ, Q | Feromon etkisi, mesafe etkisi, buharlaşma, feromon sabiti | 1.0, 3.0, 0.3, 100 |
+| Elitist ağırlık | En iyi rotaya ekstra feromon | 1.0 |
+| 2-opt yerel arama | İterasyonun en iyi rotasındaki kesişmeleri giderir | Açık |
 
-“Optimizasyonu Başlat” butonuna bastığınızda:  
-1. **OSM GraphML yüklenir** (`load_osm_graph()`) ve **mesafe matrisi hesaplanır** (`compute_distance_matrix()`).  
-2. **Karınca Kolonisi Optimizasyonu (ACO)** çalıştırılır ve en iyi rota ile mesafe bulunur.  
-3. Üç farklı **sekme (Tab)** altında sonuçlar sunulur:
+### Sonuçlar
 
-#### a) Harita
-
-- Folium kullanılarak interaktif bir harita gösterilir.  
-- **Rota çizgisi (PolyLine)**: Kırmızı renkle en iyi rota gösterilir.  
-- **Markerlarda Numara ve Renk**: 
-  - İlk nokta (Başlangıç) koyu yeşil.  
-  - Geri kalan ziyaret noktaları mavi.  
-  - Rotaya dahil edilmeyen noktalar (gri).  
-- Harita üstünde yakınlaştırma/uzaklaştırma yapılabilir.
-
-#### b) Konverjans Grafiği
-
-- Plotly tabanlı bir çizgi grafiği:  
-  - **best_distance** (en iyi mesafe)  
-  - **average_distance** (ortalama mesafe)  
-  - **worst_distance** (en kötü mesafe)  
-- Her iterasyonda bu değerler güncellenir ve grafik üzerinde izlenir.  
-- Altında açılabilir bölümde **Mesafe Matrisi Isı Haritası (Heatmap)** gösterilir.
-
-#### c) Detaylar
-
-- **DataFrame Tablosu**:  
-  - “Sıra” (1,2,3,…)  
-  - “Nokta” (isim veya “Nokta X”)  
-  - “Enlem, Boylam” (koordinatlar)  
-  - “Bir Sonraki Noktaya Mesafe (km)”  
-- Tablo altında:  
-  - **Tam Rota**: Nokta isimleri sırasıyla aralarında → olarak listelenir.  
-  - **Toplam Mesafe**: En iyi rotanın toplam kilometresi.  
-- **CSV İndir Butonu**: Tabloyu CSV olarak indirmenizi sağlar.
+- **Özet** — toplam mesafe, tahmini sürüş süresi, En Yakın Komşu'ya göre iyileşme, optimuma uzaklık (≤ 9 durak).
+- **Harita** — rota gerçek yollar üzerinde (hareketli çizgi), depo "D", duraklar ziyaret sırasıyla numaralı; her ayağın üzerine gelince mesafe/süre görünür.
+- **Rota detayı** — ayak ayak tablo (mesafe, süre, kümülatif), CSV indirme, **Google Maps'te aç** (11'den fazla durakta rota parçalara bölünür).
+- **Yakınsama** — iterasyon başına en iyi / ortalama / en kötü maliyet.
+- **Karşılaştırma** — ACO, En Yakın Komşu, En Yakın Komşu + 2-opt ve kesin optimum.
+- **Maliyet matrisi** — mesafe veya süre ısı haritası; matrisin asimetriklik derecesi.
 
 ---
 
 ## ACO Algoritmasının İşleyişi
 
-1. **Başlangıç:**  
-   - Kullanıcı tarafından seçilen `n` nokta (en az 2).  
-   - Mesafe matrisi `dist_matrix` oluşturulur: `n×n` boyutlu ve her çift (i,j) arasındaki yol mesafesi km cinsinden.  
-   - `ant_count` kadar karınca, `iterations` kadar tur çalışacak.
+1. **Hazırlık** — `n × n` maliyet matrisi (km veya dk). Ulaşılamayan çiftler (`inf`) büyük bir ceza değeriyle değiştirilir. Sezgisel bilgi `η = (1/d)^β`. Başlangıç feromonu `τ₀ = Q / L_NN` (En Yakın Komşu rotasının uzunluğu).
+2. **Rota oluşturma** — her karınca depodan başlar ve bir sonraki durağı `τ^α · η` ile orantılı olasılıkla seçer (vektörel, `numpy.random.Generator`).
+3. **Yerel arama** — iterasyonun en iyi rotasına **2-opt** uygulanır. Asimetrik matrislerde ters çevrilen parçanın iç kenarlarının maliyeti de hesaba katılır.
+4. **Feromon güncelleme**
+   - Buharlaşma: `τ ← (1 − ρ) · τ`
+   - Her karınca: rotasındaki kenarlara `Q / L`
+   - Elitist: şimdiye kadarki en iyi rotaya `e · Q / L_best`
+   - **MAX-MIN sınırları**: `τ` değerleri `[τ_min, τ_max]` aralığına kırpılır (Stützle & Hoos, 2000). Bu, feromonun tek bir rotada kilitlenmesini (durgunluk) önler.
+   - Matris simetrikse feromon iki yöne, asimetrikse yalnızca gidilen yöne eklenir.
+5. **Durdurma** — maksimum iterasyon veya `sabır` kadar iterasyon iyileşme olmaması.
 
-2. **Pheromone Matrisinin Oluşturulması:**  
-   - `pheromone = np.ones((n,n)) * 0.1` ile ilk değerler atanır.
+```python
+from aco.algorithm import ACO
 
-3. **Her Iterasyonda:**  
-   - **Her karınca**: 
-     - Rastgele bir başlangıç noktası seçer (`start`).  
-     - Geçerli rotayı inşa eder: her adımda `unvisited` (ziyaret edilmeyen) noktalar listesinden, `pheromone[current, next]^alpha * (1/dist[current, next])^beta` olasılığına göre bir sonraki noktayı seçer.  
-     - Tüm noktalar ziyaret edildikten sonra başlangıç noktasına döner (`route.append(route[0])`).  
-     - Rotanın toplam mesafesi hesaplanır (`sum(distances[path[i], path[i+1]] for i in ..)`).  
-     - Eğer bu mesafe `best_length`’den küçükse, `best_length` ve `best_route` güncellenir.  
-   - **Tur (Iteration) Sonunda:**  
-     - **Feromon Buharlaşması:** `pheromone *= (1 - rho)`  
-     - **Feromon Ekleme:** Her karıncanın rotasında kullanılan her kenara `delta = Q / length` kadar feromon eklenir (`pheromone[a,b] += delta`).  
-   - **İstatistik:** O tur için en iyi, ortalama ve en kötü mesafe değerleri toplanıp `history` listesine eklenir.
-
-4. **Sonuç:**  
-   - `best_route` ve `best_length` döner.  
-   - `history` listesi, iterasyon bazlı performansı gösterir.
+aco = ACO(dist_matrix, ant_count=20, start=0, return_to_start=True, seed=42)
+best_route, best_length, history = aco.run(iterations=100, patience=30)
+```
 
 ---
 
-## Mesafe Matrisi Hesaplama
+## Maliyet Matrisi Hesaplama
 
-1. **OSM GraphML Dosyası Yükleme** (`load_osm_graph`):  
-   - `src/data/elazig_osm.graphml` dosyası `ox.load_graphml(...)` kullanılarak yüklenir.  
-   - `ox.project_graph(graph)` ile **projeksiyon** uygulanır (UTM gibi bir CRS’e), bu sayede `ox.distance.nearest_nodes` hızlı çalışır.
-
-2. **Noktaların Projeksiyonu:**  
-   - Kullanıcının seçtiği her `(latitude, longitude)` koordinatı şunlarla işlenir:  
-     ```python
-     geom = Point(lon, lat)
-     geom_proj = ox.projection.project_geometry(geom, to_crs=graph_proj.graph["crs"])[0]
-     projected_points.append((geom_proj.x, geom_proj.y))
-     ```
-
-3. **En Yakın Node Bulma:**  
-   - `for (x,y) in projected_points:`  
-     ```python
-     node = ox.distance.nearest_nodes(graph_proj, X=x, Y=y)
-     nodes.append(node)
-     ```
-
-4. **Dijkstra ile Kısa Yol Hesaplama:**  
-   - `nx.shortest_path_length(graph_proj, source=node_i, target=node_j, weight="length")`  
-   - Sonucu metre cinsinden alır, km’ye çevrilir (`km = length_m / 1000`), `dist_matrix[i][j] = km` ve `dist_matrix[j][i] = km`.
-
-5. **Diyagonal (i == i):**  
-   - `dist_matrix[i][i] = 1e-10` (`0` olmadığı için **ACI** algoritmasında sorun çıkmaz).
+1. **Nokta eşleme** — her durak, en yakın yol düğümüne (Haversine) bağlanır; 300 m'den uzak duraklar için uyarı verilir.
+2. **Dijkstra** — her durak için **tek bir** `single_source_dijkstra_path_length` çağrısı (eskiden her çift için ayrı çağrı: `n²/2` → `n`). Hem `length` (km) hem `travel_time` (dk) hesaplanır.
+3. **Yönlü ağ** — sürüş ağı tek yönlü yolları içerdiğinden `d[i][j] ≠ d[j][i]` olabilir. Elâzığ'daki 20 hazır noktada gidiş-dönüş farkı **1.2 km**'ye kadar çıkmaktadır; bu yüzden matris artık simetrik varsayılmaz.
+4. **Rota geometrisi** — seçilen rotanın her ayağı için yol kenarlarının gerçek geometrisi haritaya çizilir.
 
 ---
 
-## Sonuçların Değerlendirilmesi
+## Sonuçlar ve Karşılaştırma
 
-1. **Gerçekçi Mesafeler:**  
-   - Seçilen noktalar arasındaki mesafeler (0.3 – 6 km) Elâzığ şehir içi gerçeğine yakın.  
-   - Örneğin “Forum AVM ↔ Otobüs Terminali” ≈ 0.31 km, “Üniversite ↔ Harput Kalesi” ≈ 6.08 km.  
-   - Bu doğruluk, ACO algoritmasının mantıklı rotalar üretmesini sağlar.
+20 hazır Elâzığ noktası, kapalı tur, gerçek (yönlü) yol mesafeleri, 20 karınca / 100 iterasyon:
 
-2. **Matrisin Simetrik Olması:**  
-   - `dist[i][j] == dist[j][i]` tutarlılığı korunmuş.  
-   - Sadece `dist[i][i]` kendi kendine mesafe için 1e-10 olarak ayarlanmış.
+| Yöntem | Toplam mesafe | Süre |
+|---|---|---|
+| En Yakın Komşu | 33.78 km | < 1 ms |
+| En Yakın Komşu + 2-opt | 29.18 km | ~ 5 ms |
+| Önceki ACO sürümü* | 30.33 – 31.47 km | ~ 1.7 sn |
+| **Yeni ACO** (3 farklı tohum) | **28.90 – 29.06 km** | **~ 0.5 sn** |
 
-3. **ACO Performansı ve Grafikler:**  
-   - **Karınca Sayısı = 20**, **Iterasyon Sayısı = 100** için 5–15 saniye içinde sonuç alınır.  
-   - “Konverjans Grafiği”nde ilk 10–20 iterasyonda hızlı düşüş, sonrasında denge hâline gelir.  
-   - Ortalama (average) ve en kötü (worst) mesafeler, algoritmanın ne kadar çeşitli yollar denediğini gösterir.
+\* Önceki sürüm simetrik matris kullandığından ekranda 29.43 km gösteriyordu; bulduğu rotanın gerçek yönlü mesafesi 30.3 – 31.5 km'dir.
 
-4. **Uygulama Alanları:**  
-   - **Teslimat Lojistiği**: Elâzığ içindeki şirketler, restoranlar, kuryeler bu aracı kullanarak en kısa güzergâhı belirleyebilir.  
-   - **Saha Çalışmaları**: Teknik ekiplerin saha ziyaret sırasını optimize etmesi.  
-   - **Turistik Rotalar**: Ziyaretçilerin önemli noktaları en verimli şekilde ziyaret edebilmesi.
+≤ 9 duraklı problemlerde ACO sonucu kaba kuvvetle bulunan kesin optimumla karşılaştırılır; testlerde rastgele örneklerin en az %90'ında kesin optimum bulunmaktadır.
+
+**Uygulama alanları:** kurye/teslimat lojistiği, saha ekiplerinin ziyaret sırası, turistik gezi rotaları.
+
+---
+
+## Testler
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+- `tests/test_aco.py` — kesin optimumla karşılaştırma, simetrik/asimetrik, açık/kapalı rota, depo, ulaşılamayan kenarlar, tohum tekrarlanabilirliği, erken durdurma
+- `tests/test_io.py` — CSV okuma (alternatif kolonlar, `;` ayracı), Google Maps bağlantıları, rota tablosu
+- `tests/test_osm.py` — gerçek yol ağıyla matris ve geometri (GraphML yoksa atlanır)
+- `tests/test_app.py` — Streamlit arayüzünün uçtan uca testi (`streamlit.testing`)
 
 ---
 
 ## Gelecek Geliştirmeler
 
-1. **Zaman Pencereli Rotalama (Time Windows)**  
-   - Noktaların sadece belirli saatlerde ziyaret edilebildiği senaryolar.  
-   - Bu, aracı **Vehicle Routing Problem with Time Windows (VRPTW)** çözücülere ihtiyaç duyacak doğrultuda genişletir.
-
-2. **Trafik Verileri ve Süre Temelli Hesaplama**  
-   - Google Maps API veya OpenRouteService ile gerçek zamanlı trafik verisi entegre edilerek, **mesafe yerine süre (duration)** üzerinden optimizasyon yapılabilir.
-
-3. **Harita Üzerinde Nokta Silme ve Yeniden Konumlandırma**  
-   - Mevcut “Haritadan Tıkla” yöntemini geliştirerek, harita üzerinde seçilen noktaları sürükleme (drag & drop) veya silmeye (remove) imkân veren fonksiyonlar eklenebilir.
-
-4. **Paralel İşleme (Parallelization)**  
-   - ACO algoritmasında “karıncaların rotaları oluşturma” ve “feromon güncelleme” adımları **çok çekirdekli (multi-core)** olarak çalıştırılıp hız kazanılabilir.
-
-5. **Bölge Seçimi (Bounding Box)**  
-   - Kullanıcıya haritada bir dikdörtgen çizme (kutu seçme) imkânı verilip, sadece o bölgede rastgele/otomatik nokta oluşturulabilir veya mevcut nokta listesi o bölgede filtrelenebilir.
-
----
-
-## Özet
-
-Bu proje, Elâzığ içindeki çeşitli nokta kümelerini (alışveriş merkezleri, hastaneler, üniversite, tarihi mekanlar vb.) kullanarak:
-
-1. **OSM’den yerel GraphML** (Elâzığ yolları) dosyası oluşturur.  
-2. **Mesafe Matrisi** hesaplar (Dijkstra + OSM).  
-3. **Ant Colony Optimization** (Karınca Kolonisi) algoritmasını çalıştırarak en iyi rotayı bulur.  
-4. **Streamlit Arayüzü** sunarak:
-   - Nokta seçimi (liste veya harita)  
-   - ACO parametre ayarı  
-   - Harita, konverjans grafiği ve detay tablosu gösterimi  
-   - CSV formatında sonuç indirme  
-
-Sonuçlar, gerçekçi mesafelere dayanmakta ve ACO’nun hızlıca anlamlı rotalar üretmesine imkân tanımaktadır. Gelecekte ek özelliklerle (zaman penceresi, gerçek zamanlı trafik, paralel işlem vb.) daha kapsamlı lojistik çözümler sunmak mümkündür.
-#
+- [x] ~~Trafik/süre temelli hesaplama~~ → hız sınırlarına dayalı süre optimizasyonu eklendi
+- [x] ~~Harita üzerinde nokta silme~~ → tüm duraklar tabloda düzenlenip silinebilir
+- [ ] **Zaman pencereleri (VRPTW)** — durakların belirli saatlerde ziyaret edilmesi
+- [ ] **Birden fazla araç / kapasite (CVRP)** — durakların araçlar arasında bölüştürülmesi
+- [ ] **Gerçek zamanlı trafik** — OpenRouteService / OSRM ile canlı süreler
+- [ ] **Paralel karıncalar** — çok çekirdekli rota oluşturma
 
 ---
 
